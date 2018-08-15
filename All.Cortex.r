@@ -1,6 +1,6 @@
 
 rm(list=ls())
-setwd("~/Desktop/RNA-Seq-Brain-June-2018/Cortex/All.Cortex/")
+setwd("~/Desktop/Cortex-study/")
 
 library("DESeq2")
 library(RColorBrewer)
