@@ -57,7 +57,7 @@ coldata
 
 ######### ALL SAMPLES XY vs XX ########################
 
-dds <- DESeqDataSetFromMatrix(countData=countdata, colData=coldata, design = ~sex)
+dds <- DESeqDataSetFromMatrix(countData=countdata, colData=coldata, design =~sex)
 
 dds
 
@@ -93,79 +93,61 @@ nrow(res.dup)
 write.csv(res.symbol, file="results.ALL.XY.vs.XX.csv")
 write.csv(res.dup, file="results.ALL.XY.vs.XX.dup.csv")
 
-
-####### MF DESIGN ######
-
-dds$group <- factor(paste0(dds$sex, dds$tissue))
-design(dds) <- ~ group
-dds <- DESeq(dds)
-dds$group
-
-#Forebrain XY vs XX
-
-res.fb <- results(dds, contrast = c("group", "XYforebrain", "XXforebrain"), cooksCutoff = FALSE)
-
-summary(res.fb)
-
-res.fb.symbol <- res.fb
-res.fb.symbol$symbol <- mapIds(Homo.sapiens,keys=row.names(res.fb),column="SYMBOL",keytype="ENSEMBL",multiVals="first")
-res.fb.symbol <- res.fb.symbol[complete.cases(res.fb.symbol[, 6:7]),] #Remove NA values from Gene Symbol & padj
-nrow(res.fb.symbol)
-res.fb.dup <- res.fb.symbol[duplicated(res.fb.symbol$symbol),] #Visualize duplicates
-nrow(res.fb.dup)
-
-write.csv(res.fb.symbol, file="results.Forebrain.XY.vs.XX.csv")
-write.csv(res.fb.dup, file="results.Forebrain.XY.vs.XX.dup.csv")
-
-#Telencephalon XY vs XX
-
-res.tl <- results(dds, contrast = c("group", "XYtelencephalon", "XXtelencephalon"), cooksCutoff = FALSE)
-
-summary(res.tl)
-
-res.tl.symbol <- res.tl
-res.tl.symbol$symbol <- mapIds(Homo.sapiens,keys=row.names(res.tl),column="SYMBOL",keytype="ENSEMBL",multiVals="first")
-res.tl.symbol <- res.tl.symbol[complete.cases(res.tl.symbol[, 6:7]),] #Remove NA values from Gene Symbol & padj
-nrow(res.tl.symbol)
-res.tl.dup <- res.tl.symbol[duplicated(res.tl.symbol$symbol),] #Visualize duplicates
-nrow(res.tl.dup)
-
-write.csv(res.tl.symbol, file="results.Telencephalon.XY.vs.XX.csv")
-write.csv(res.tl.dup, file="results.Telencephalon.XY.vs.XX.dup.csv")
+## MA PLOT ###
 
 
-#Cortex XY vs XX
-
-res.ctx <- results(dds, contrast = c("group", "XYcortex", "XXcortex"), cooksCutoff = FALSE)
-
-summary(res.ctx)
-
-res.ctx.symbol <- res.ctx
-res.ctx.symbol$symbol <- mapIds(Homo.sapiens,keys=row.names(res.ctx),column="SYMBOL",keytype="ENSEMBL",multiVals="first")
-res.ctx.symbol <- res.ctx.symbol[complete.cases(res.ctx.symbol[, 6:7]),] #Remove NA values from Gene Symbol & padj
-nrow(res.ctx.symbol)
-res.ctx.dup <- res.ctx.symbol[duplicated(res.ctx.symbol$symbol),] #Visualize duplicates
-nrow(res.ctx.dup)
-
-write.csv(res.ctx.symbol, file="results.Cortex.XY.vs.XX.csv")
-write.csv(res.ctx.dup, file="results.Cortex.XY.vs.XX.dup.csv")
+DESeq2::plotMA(res, alpha = 0.05, ylim=c(-10,10)) #Points colored in red if padj is lower than 0.05.Points which fall out of the window are plotted as open triangles pointing either up or down.
 
 
-#Brain XY vs XX
 
-res.br <- results(dds, contrast = c("group", "XYBrain", "XXBrain"), cooksCutoff = FALSE)
+## RLD TRANSFORMATION ##
 
-summary(res.br)
+# Regularized log transformation for clustering/heatmaps, etc. rlog tends to work well on small datasets (n <30)
+rld <- rlogTransformation(dds, blind = FALSE)
+head(assay(rld),3)
+hist(assay(rld))
+names(colData(dds))
 
-res.br.symbol <- res.br
-res.br.symbol$symbol <- mapIds(Homo.sapiens,keys=row.names(res.br),column="SYMBOL",keytype="ENSEMBL",multiVals="first")
-res.br.symbol <- res.br.symbol[complete.cases(res.br.symbol[, 6:7]),] #Remove NA values from Gene Symbol & padj
-nrow(res.br.symbol)
-res.br.dup <- res.br.symbol[duplicated(res.br.symbol$symbol),] #Visualize duplicates
-nrow(res.br.dup)
+plotPCA(rld, intgroup="sex")
 
-write.csv(res.br.symbol, file="results.Brain.XY.vs.XX.csv")
-write.csv(res.br.dup, file="results.Brain.XY.vs.XX.dup.csv")
+
+pcaData.sex <- plotPCA(rld, intgroup="sex", returnData=TRUE)
+percentVar <- round(100 * attr(pcaData.sex, "percentVar"))
+pca.Cortex <- ggplot(pcaData.sex, aes(PC1, PC2, color=sex, shape=tissue)) +
+  geom_point(size=3) + geom_text(aes(label=phenodata$Stage),hjust=0.5, vjust=1.5) +
+  xlab(paste0("PC1: ",percentVar[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar[2],"% variance")) + 
+  coord_fixed()
+
+ggplot(pcaData.sex, aes(PC1, PC2, color=sex, shape=tissue)) +
+  geom_point(size=3) +
+  xlab(paste0("PC1: ",percentVar[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar[2],"% variance")) + 
+  coord_fixed()
+
+
+#### SAMPLE DISTANCES #####
+
+# Sample Distances
+sampleDists <- dist(t(assay(rld)))
+sampleDistMatrix <- as.matrix( sampleDists )
+rownames(sampleDistMatrix) <- colnames(rld)
+colnames(sampleDistMatrix) <- NULL
+colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+
+all.sampleDistances <- pheatmap(sampleDistMatrix,
+                                clustering_distance_rows = sampleDists,
+                                clustering_distance_cols = sampleDists,
+                                col = colors)
+
+# Plot dispersions
+
+pdf("qc-dispersions.pdf")
+plotDispEsts(dds, main="Dispersion plot")
+dev.off()
+
+
+###############################################################################################################################
 
 
 
@@ -422,56 +404,79 @@ write.csv(res.dup, file="results.Brain.XY.vs.XX.dup.csv")
 
 
 
-################### MA PLOT ##############################################################################################
+
+####### MF DESIGN ######
+
+dds$group <- factor(paste0(dds$sex, dds$tissue))
+design(dds) <- ~ group
+dds <- DESeq(dds)
+dds$group
+
+#Forebrain XY vs XX
+
+res.fb <- results(dds, contrast = c("group", "XYforebrain", "XXforebrain"), cooksCutoff = FALSE)
+
+summary(res.fb)
+
+res.fb.symbol <- res.fb
+res.fb.symbol$symbol <- mapIds(Homo.sapiens,keys=row.names(res.fb),column="SYMBOL",keytype="ENSEMBL",multiVals="first")
+res.fb.symbol <- res.fb.symbol[complete.cases(res.fb.symbol[, 6:7]),] #Remove NA values from Gene Symbol & padj
+nrow(res.fb.symbol)
+res.fb.dup <- res.fb.symbol[duplicated(res.fb.symbol$symbol),] #Visualize duplicates
+nrow(res.fb.dup)
+
+write.csv(res.fb.symbol, file="results.Forebrain.XY.vs.XX.csv")
+write.csv(res.fb.dup, file="results.Forebrain.XY.vs.XX.dup.csv")
+
+#Telencephalon XY vs XX
+
+res.tl <- results(dds, contrast = c("group", "XYtelencephalon", "XXtelencephalon"), cooksCutoff = FALSE)
+
+summary(res.tl)
+
+res.tl.symbol <- res.tl
+res.tl.symbol$symbol <- mapIds(Homo.sapiens,keys=row.names(res.tl),column="SYMBOL",keytype="ENSEMBL",multiVals="first")
+res.tl.symbol <- res.tl.symbol[complete.cases(res.tl.symbol[, 6:7]),] #Remove NA values from Gene Symbol & padj
+nrow(res.tl.symbol)
+res.tl.dup <- res.tl.symbol[duplicated(res.tl.symbol$symbol),] #Visualize duplicates
+nrow(res.tl.dup)
+
+write.csv(res.tl.symbol, file="results.Telencephalon.XY.vs.XX.csv")
+write.csv(res.tl.dup, file="results.Telencephalon.XY.vs.XX.dup.csv")
 
 
-DESeq2::plotMA(res, alpha = 0.05, ylim=c(-10,10)) #Points colored in red if padj is lower than 0.05.Points which fall out of the window are plotted as open triangles pointing either up or down.
+#Cortex XY vs XX
+
+res.ctx <- results(dds, contrast = c("group", "XYcortex", "XXcortex"), cooksCutoff = FALSE)
+
+summary(res.ctx)
+
+res.ctx.symbol <- res.ctx
+res.ctx.symbol$symbol <- mapIds(Homo.sapiens,keys=row.names(res.ctx),column="SYMBOL",keytype="ENSEMBL",multiVals="first")
+res.ctx.symbol <- res.ctx.symbol[complete.cases(res.ctx.symbol[, 6:7]),] #Remove NA values from Gene Symbol & padj
+nrow(res.ctx.symbol)
+res.ctx.dup <- res.ctx.symbol[duplicated(res.ctx.symbol$symbol),] #Visualize duplicates
+nrow(res.ctx.dup)
+
+write.csv(res.ctx.symbol, file="results.Cortex.XY.vs.XX.csv")
+write.csv(res.ctx.dup, file="results.Cortex.XY.vs.XX.dup.csv")
 
 
+#Brain XY vs XX
 
-########### RLD TRANSFORMATION ##################
+res.br <- results(dds, contrast = c("group", "XYBrain", "XXBrain"), cooksCutoff = FALSE)
 
-# Regularized log transformation for clustering/heatmaps, etc. rlog tends to work well on small datasets (n <30)
-rld <- rlogTransformation(dds, blind = TRUE)
-head(assay(rld),3)
-hist(assay(rld))
-names(colData(dds))
+summary(res.br)
 
-plotPCA(rld, intgroup="sex")
+res.br.symbol <- res.br
+res.br.symbol$symbol <- mapIds(Homo.sapiens,keys=row.names(res.br),column="SYMBOL",keytype="ENSEMBL",multiVals="first")
+res.br.symbol <- res.br.symbol[complete.cases(res.br.symbol[, 6:7]),] #Remove NA values from Gene Symbol & padj
+nrow(res.br.symbol)
+res.br.dup <- res.br.symbol[duplicated(res.br.symbol$symbol),] #Visualize duplicates
+nrow(res.br.dup)
 
-
-pcaData.sex <- plotPCA(rld, intgroup="sex", returnData=TRUE)
-percentVar <- round(100 * attr(pcaData.sex, "percentVar"))
-pca.Cortex <- ggplot(pcaData.sex, aes(PC1, PC2, color=sex, shape=stage)) +
-  geom_point(size=3) + geom_text(aes(label=phenodata.ctx$Sequencing_ID),hjust=0.5, vjust=1.5) +
-  xlab(paste0("PC1: ",percentVar[1],"% variance")) +
-  ylab(paste0("PC2: ",percentVar[2],"% variance")) + 
-  coord_fixed()
-
-
-
-#### SAMPLE DISTANCES #####
-
-# Sample Distances
-sampleDists <- dist(t(assay(rld)))
-sampleDistMatrix <- as.matrix( sampleDists )
-rownames(sampleDistMatrix) <- colnames(rld)
-colnames(sampleDistMatrix) <- NULL
-colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
-
-cortex.sampleDistances <- pheatmap(sampleDistMatrix,
-         clustering_distance_rows = sampleDists,
-         clustering_distance_cols = sampleDists,
-         col = colors)
-
-# Plot dispersions
-
-pdf("qc-dispersions.pdf")
-plotDispEsts(dds, main="Dispersion plot")
-dev.off()
-
-
-##########################################################################################################################
+write.csv(res.br.symbol, file="results.Brain.XY.vs.XX.csv")
+write.csv(res.br.dup, file="results.Brain.XY.vs.XX.dup.csv")
 
 
 save.image(file="Brain-study.RData")
